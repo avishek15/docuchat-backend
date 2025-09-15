@@ -1,0 +1,47 @@
+"""Configuration management for the application."""
+
+import os
+from functools import lru_cache
+from typing import Optional
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """Application settings."""
+
+    # App settings
+    app_name: str = Field(default="DocuChat API", env="APP_NAME")
+    debug: bool = Field(default=False, env="DEBUG")
+    environment: str = Field(default="development", env="ENVIRONMENT")
+
+    # AWS Lambda settings
+    aws_region: str = Field(default="ap-southeast-1", env="AWS_REGION")
+
+    # Google Sheets settings
+    google_project_id: Optional[str] = Field(default=None, env="GOOGLE_PROJECT_ID")
+    google_private_key_id: Optional[str] = Field(
+        default=None, env="GOOGLE_PRIVATE_KEY_ID"
+    )
+    google_private_key: Optional[str] = Field(default=None, env="GOOGLE_PRIVATE_KEY")
+    google_client_email: Optional[str] = Field(default=None, env="GOOGLE_CLIENT_EMAIL")
+    google_sheets_id: Optional[str] = Field(default=None, env="GOOGLE_SHEETS_ID")
+    google_worksheet_name: str = Field(default="Leads", env="GOOGLE_WORKSHEET_NAME")
+
+    # External API settings
+    api_timeout: int = Field(default=30, env="API_TIMEOUT")
+    max_retries: int = Field(default=3, env="MAX_RETRIES")
+
+    # Logging
+    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+        extra = "ignore"  # Ignore extra environment variables
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """Get cached application settings."""
+    return Settings()

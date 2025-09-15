@@ -1,0 +1,150 @@
+"""Authentication API endpoints."""
+
+from fastapi import APIRouter, Request, HTTPException, status, Depends
+import structlog
+from app.models.auth import LoginRequest
+from app.schemas.auth import (
+    LoginSchema,
+    LoginResponseSchema,
+    LogoutSchema,
+    LogoutResponseSchema,
+    UserStatusSchema,
+)
+from app.schemas.responses import ErrorResponse
+from app.services.auth_service import AuthService
+from app.core.exceptions import AuthenticationError
+from app.core.auth import get_current_user, get_auth_service
+
+logger = structlog.get_logger()
+router = APIRouter()
+
+
+@router.post(
+    "/login",
+    response_model=LoginResponseSchema,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def login(request: Request, login_data: LoginSchema):
+    """User login endpoint."""
+    try:
+        # Get client IP
+        client_ip = request.client.host if request.client else "unknown"
+
+        # Convert schema to model
+        login_request = LoginRequest(email=login_data.email, name=login_data.name)
+
+        # Process login
+        auth_service = get_auth_service()
+        result = await auth_service.login(login_request, client_ip)
+
+        # Convert to response schema
+        return LoginResponseSchema(
+            status=result.status,
+            email=result.email,
+            ip=result.ip_address,
+            session_token=result.session_token,
+        )
+
+    except AuthenticationError as e:
+        logger.error("Authentication error", error=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    except Exception as e:
+        logger.error("Unexpected error during login", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+
+@router.post(
+    "/logout",
+    response_model=LogoutResponseSchema,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def logout(logout_data: LogoutSchema):
+    """User logout endpoint."""
+    try:
+        auth_service = get_auth_service()
+        success = await auth_service.logout(logout_data.email)
+
+        if success:
+            return LogoutResponseSchema(
+                status="success", message="User logged out successfully"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Logout failed"
+            )
+
+    except AuthenticationError as e:
+        logger.error("Authentication error during logout", error=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    except Exception as e:
+        logger.error("Unexpected error during logout", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+
+@router.get(
+    "/status/{email}",
+    response_model=UserStatusSchema,
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def get_user_status(email: str):
+    """Get user status and session information."""
+    try:
+        auth_service = get_auth_service()
+        user_status = await auth_service.get_user_status(email)
+
+        if user_status is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
+
+        return UserStatusSchema(**user_status)
+
+    except AuthenticationError as e:
+        logger.error("Authentication error getting user status", error=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error getting user status", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+
+@router.get("/me")
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    """Get current authenticated user information."""
+    return {
+        "user": current_user,
+        "authenticated": True,
+        "message": "You are successfully authenticated!",
+    }
+
+
+@router.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    try:
+        auth_service = get_auth_service()
+        is_healthy = await auth_service.health_check()
+
+        if is_healthy:
+            return {"status": "healthy"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service unhealthy",
+            )
+    except Exception as e:
+        logger.error("Health check failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Health check failed",
+        )
