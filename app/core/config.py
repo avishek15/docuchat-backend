@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     api_timeout: int = Field(default=30, env="API_TIMEOUT")
     max_retries: int = Field(default=3, env="MAX_RETRIES")
 
+    # Pinecone settings
+    pinecone_api_key: Optional[str] = Field(default=None, env="PINECONE_API_KEY")
+    pinecone_index_name: str = Field(
+        default="ta-sample-docs", env="PINECONE_INDEX_NAME"
+    )
+    pinecone_max_concurrent: int = Field(default=15, env="PINECONE_MAX_CONCURRENT")
+
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
 
