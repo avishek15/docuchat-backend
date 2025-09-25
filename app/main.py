@@ -1,11 +1,15 @@
 """FastAPI application main module."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.exceptions import DocuChatException
-from app.core.database import init_database
+from app.services.database.auth import AuthDatabaseService
+# from app.core.database import init_database
+
+# from app.db.migrations.migration_manager import get_migration_manager
 from app.models import HealthResponse
 from app.api.v1.router import api_router
 from app.utils.logging import configure_logging
@@ -17,15 +21,42 @@ logger = configure_logging()
 settings = get_settings()
 
 
+async def background_cleanup():
+    """Background task to clean up expired and inactive sessions."""
+    auth_service = AuthDatabaseService()
+    while True:
+        try:
+            cleaned_count = await auth_service.cleanup_expired_sessions()
+            if cleaned_count > 0:
+                logger.info(
+                    "Background cleanup completed", sessions_cleaned=cleaned_count
+                )
+        except Exception as e:
+            logger.error("Background cleanup failed", error=str(e))
+
+        # Wait 5 minutes before next cleanup
+        await asyncio.sleep(300)  # 5 minutes
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     logger.info("Starting up DocuChat API")
     try:
-        # Initialize database and create tables
-        init_database()
-        logger.info("Database initialized successfully")
+        # Initialize database connection
+        # init_database()
+        # logger.info("Database connection initialized")
+
+        # Create tables using migration manager
+        # migration_manager = get_migration_manager()
+        # migration_manager.create_tables()
+        logger.info("Database tables created successfully")
+
+        # Start background cleanup task
+        cleanup_task = asyncio.create_task(background_cleanup())
+        logger.info("Background session cleanup started")
+
     except Exception as e:
         logger.error("Failed to initialize database", error=str(e))
         raise
@@ -34,6 +65,12 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down DocuChat API")
+    if "cleanup_task" in locals():
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            logger.info("Background cleanup task cancelled")
 
 
 # Create FastAPI app

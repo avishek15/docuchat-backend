@@ -1,6 +1,6 @@
 """Authentication dependencies for FastAPI."""
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Dict, Any, Optional
 from app.services.auth_service import AuthService
@@ -21,6 +21,7 @@ def get_auth_service() -> AuthService:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> Dict[str, Any]:
     """
@@ -34,9 +35,10 @@ async def get_current_user(
     try:
         auth_service = get_auth_service()
         token = credentials.credentials
+        client_ip = request.client.host if request.client else "unknown"
 
-        # Validate the token
-        session_data = await auth_service.validate_token(token)
+        # Validate the token with IP address
+        session_data = await auth_service.validate_token(token, client_ip)
 
         if session_data is None:
             raise HTTPException(
@@ -58,6 +60,7 @@ async def get_current_user(
 
 
 async def get_optional_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> Optional[Dict[str, Any]]:
     """
@@ -76,6 +79,7 @@ async def get_optional_user(
     try:
         auth_service = get_auth_service()
         token = credentials.credentials
-        return await auth_service.validate_token(token)
+        client_ip = request.client.host if request.client else "unknown"
+        return await auth_service.validate_token(token, client_ip)
     except Exception:
         return None

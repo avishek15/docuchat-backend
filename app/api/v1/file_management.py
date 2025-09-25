@@ -1,7 +1,7 @@
 """File management API endpoints."""
 
 from fastapi import APIRouter, Request, HTTPException, status, Depends
-from datetime import datetime
+from datetime import datetime, timezone
 import structlog
 import uuid
 
@@ -60,10 +60,10 @@ async def upload_file(
         file_id = str(uuid.uuid4())
 
         # Get current timestamp
-        processed_at = datetime.utcnow().isoformat() + "Z"
+        processed_at = datetime.now(timezone.utc).isoformat() + "Z"
 
         # Validate file size (example: max 10MB)
-        max_size = 10 * 1024 * 1024  # 10MB in bytes
+        max_size = 2 * 1024 * 1024  # 2MB in bytes
         if file_data.file_size > max_size:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -85,6 +85,7 @@ async def upload_file(
             )
 
         # TODO: Implement actual file processing and storage
+        print(file_data.contents)
         # This could include:
         # - Storing file metadata in database
         # - Processing text contents (chunking, embedding, etc.)

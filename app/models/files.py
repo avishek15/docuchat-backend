@@ -1,8 +1,9 @@
 """File management SQLModel classes."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlmodel import SQLModel, Field
+from sqlalchemy import DateTime
 from .base import TimestampMixin, BaseResponse
 
 
@@ -32,7 +33,9 @@ class File(TimestampMixin, table=True):
         default="uploaded", description="File status (uploaded/processing/ready/error)"
     )
     processed_at: Optional[datetime] = Field(
-        default=None, description="When file was processed"
+        default=None,
+        sa_type=DateTime(timezone=True),
+        description="When file was processed",
     )
 
 

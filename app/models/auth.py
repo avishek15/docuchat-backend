@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
+from sqlalchemy import DateTime
 from pydantic import EmailStr
 from .base import TimestampMixin, BaseResponse
 
@@ -24,6 +25,7 @@ class User(TimestampMixin, table=True):
     status: str = Field(default="Active", description="User status (Active/Inactive)")
     last_accessed: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
         description="Last access timestamp",
     )
 
@@ -37,7 +39,9 @@ class UserSession(TimestampMixin, table=True):
     user_id: int = Field(foreign_key="users.id", description="User ID")
     token: str = Field(unique=True, index=True, description="Session token")
     ip_address: str = Field(description="IP address of the session")
-    expires_at: datetime = Field(description="Session expiration time")
+    expires_at: datetime = Field(
+        sa_type=DateTime(timezone=True), description="Session expiration time"
+    )
     is_active: bool = Field(default=True, description="Whether session is active")
 
 

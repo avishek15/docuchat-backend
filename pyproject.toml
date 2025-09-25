@@ -18,6 +18,8 @@ dependencies = [
     "structlog>=23.2.0",
     "uvicorn>=0.24.0",
     "libsql>=0.1.11",
+    "sqlalchemy-libsql>=0.1.0",
+    "pinecone>=7.3.0",
 ]
 
 [build-system]

@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
+from sqlalchemy import DateTime
 
 
 class TimestampMixin(SQLModel):
@@ -10,10 +11,13 @@ class TimestampMixin(SQLModel):
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
         description="When the record was created",
     )
     updated_at: Optional[datetime] = Field(
-        default=None, description="When the record was last updated"
+        default=None,
+        sa_type=DateTime(timezone=True),
+        description="When the record was last updated",
     )
 
 

@@ -8,7 +8,6 @@ from pathlib import Path
 # Add the app directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.db.migrations import MigrationRunner
 from app.core.database import get_database_manager
 
 
@@ -24,75 +23,19 @@ def print_help():
     print("""
 Available commands:
 
-Database Management:
-  migrate                 Run all pending migrations
-  migrate <version>       Run migrations up to specific version
-  rollback <version>      Rollback to specific migration version
-  migration-status        Show current migration status
+Database Migration:
+  generate-migration      Generate SQL file to recreate all tables
+  apply-migration         Drop all tables and recreate from models (DATA LOSS!)
+  
+Database Info:
   db-info                 Show database connection info
+  test-auth              Test authentication flow
 
 Examples:
-  python manage.py migrate
-  python manage.py migrate 003
-  python manage.py rollback 002
-  python manage.py migration-status
-  python manage.py db-info
+  uv run python manage.py generate-migration
+  uv run python manage.py apply-migration
+  uv run python manage.py test-auth
 """)
-
-
-def handle_migrate(args):
-    """Handle migration commands."""
-    runner = MigrationRunner()
-
-    if len(args) == 0:
-        # Run all migrations
-        print("🔄 Running all pending migrations...")
-        runner.run_migrations()
-        print("✅ All migrations completed successfully!")
-    else:
-        # Run migrations up to specific version
-        target_version = args[0]
-        print(f"🔄 Running migrations up to version {target_version}...")
-        runner.run_migrations(target_version)
-        print(f"✅ Migrations completed up to version {target_version}!")
-
-
-def handle_rollback(args):
-    """Handle rollback commands."""
-    if len(args) == 0:
-        print("❌ Error: Target version required for rollback")
-        print("Usage: python manage.py rollback <version>")
-        return
-
-    target_version = args[0]
-    runner = MigrationRunner()
-
-    print(f"🔄 Rolling back to version {target_version}...")
-    print("⚠️  This will undo migrations and may result in data loss!")
-
-    confirm = input("Are you sure? (y/N): ").lower().strip()
-    if confirm not in ["y", "yes"]:
-        print("❌ Rollback cancelled")
-        return
-
-    runner.rollback_migration(target_version)
-    print(f"✅ Rollback to version {target_version} completed!")
-
-
-def handle_migration_status():
-    """Handle migration status command."""
-    runner = MigrationRunner()
-    status = runner.get_migration_status()
-
-    print("📊 Migration Status:")
-    print(f"   Applied: {status['applied_migrations']}/{status['total_migrations']}")
-    print(f"   Pending: {status['pending_migrations']}")
-    print()
-
-    print("📋 Migrations:")
-    for migration in status["migrations"]:
-        status_icon = "✅" if migration["applied"] else "⏳"
-        print(f"   {status_icon} {migration['version']}: {migration['description']}")
 
 
 def handle_db_info():
@@ -187,6 +130,41 @@ def handle_test_auth():
     asyncio.run(test_auth_flow())
 
 
+def handle_generate_migration():
+    """Generate migration SQL file."""
+    from app.db.migrations.simple_migration import SimpleMigrationGenerator
+
+    generator = SimpleMigrationGenerator()
+    print("🔄 Generating migration SQL...")
+
+    filepath = generator.generate_and_save()
+    print(f"✅ Migration SQL generated: {filepath}")
+    print("⚠️  Review the SQL file before applying!")
+
+
+def handle_apply_migration():
+    """Apply migration (drops and recreates all tables)."""
+    from app.db.migrations.simple_migration import SimpleMigrationGenerator
+
+    print("⚠️  WARNING: This will DROP ALL TABLES and recreate them!")
+    print("⚠️  ALL DATA WILL BE LOST!")
+
+    confirm = input("Are you sure? Type 'yes' to continue: ").lower().strip()
+    if confirm != "yes":
+        print("❌ Migration cancelled")
+        return
+
+    generator = SimpleMigrationGenerator()
+    print("🔄 Applying migration...")
+
+    try:
+        generator.generate_and_apply()
+        print("✅ Migration applied successfully!")
+        print("📤 Changes synced with Turso cloud database")
+    except Exception as e:
+        print(f"❌ Migration failed: {e}")
+
+
 def main():
     """Main entry point."""
     print_banner()
@@ -199,12 +177,10 @@ def main():
     args = sys.argv[2:]
 
     try:
-        if command == "migrate":
-            handle_migrate(args)
-        elif command == "rollback":
-            handle_rollback(args)
-        elif command == "migration-status":
-            handle_migration_status()
+        if command == "generate-migration":
+            handle_generate_migration()
+        elif command == "apply-migration":
+            handle_apply_migration()
         elif command == "db-info":
             handle_db_info()
         elif command == "test-auth":

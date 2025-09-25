@@ -14,3 +14,4 @@
 *.pyc
 .python-version
 local.db*
+docu-chat.db*

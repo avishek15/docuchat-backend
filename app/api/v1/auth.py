@@ -20,7 +20,11 @@ router = APIRouter()
 @router.post(
     "/login",
     response_model=LoginResponse,
-    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
 )
 async def login(request: Request, login_data: LoginRequest):
     """User login endpoint."""
@@ -40,6 +44,11 @@ async def login(request: Request, login_data: LoginRequest):
 
     except AuthenticationError as e:
         logger.error("Authentication error", error=str(e))
+        # Check if it's a rate limiting error
+        if "Too many login attempts" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e)
+            )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
     except Exception as e:
         logger.error("Unexpected error during login", error=str(e))
@@ -54,11 +63,19 @@ async def login(request: Request, login_data: LoginRequest):
     response_model=LogoutResponse,
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-async def logout(logout_data: LogoutRequest):
+async def logout(logout_data: LogoutRequest, request: Request):
     """User logout endpoint."""
     try:
         auth_service = get_auth_service()
-        success = await auth_service.logout(logout_data.email)
+
+        # Check if this is a token-based logout (user is authenticated)
+        # If so, we can invalidate just that specific session
+        token = None
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+
+        success = await auth_service.logout(logout_data.email, token)
 
         if success:
             return LogoutResponse(
@@ -74,6 +91,49 @@ async def logout(logout_data: LogoutRequest):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
     except Exception as e:
         logger.error("Unexpected error during logout", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+
+@router.post(
+    "/logout-token",
+    response_model=LogoutResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
+)
+async def logout_with_token(current_user: dict = Depends(get_current_user)):
+    """Secure logout endpoint that requires authentication."""
+    try:
+        auth_service = get_auth_service()
+        email = current_user.get("email")
+
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User email not found in session",
+            )
+
+        success = await auth_service.logout(email)
+
+        if success:
+            return LogoutResponse(
+                status="success",
+                message="User logged out successfully (token invalidated)",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Logout failed"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error during token logout", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
@@ -128,7 +188,11 @@ async def validate_session(current_user: dict = Depends(get_current_user)):
         "valid": True,
         "user_id": current_user.get("user_id"),
         "email": current_user.get("email"),
-        "expires_at": current_user.get("last_accessed"),
+        "name": current_user.get("name"),
+        "session_id": current_user.get("session_id"),
+        "created_at": current_user.get("created_at"),
+        "expires_at": current_user.get("expires_at"),
+        "last_accessed": current_user.get("last_accessed"),
     }
 
 

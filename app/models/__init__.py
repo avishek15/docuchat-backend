@@ -1,4 +1,4 @@
-"""Unified SQLModel classes for DocuChat backend."""
+"""Models package for DocuChat backend."""
 
 # Base models
 from .base import (
@@ -11,50 +11,44 @@ from .base import (
 
 # Authentication models
 from .auth import (
-    # Database models
     User,
     UserSession,
-    # Request/Response models
     LoginRequest,
     LoginResponse,
     LogoutRequest,
     LogoutResponse,
     UserStatusResponse,
     UserPublic,
-    # CRUD models
     UserRead,
     UserCreate,
     UserUpdate,
     SessionCreate,
 )
 
-# File models
+# File management models
 from .files import (
-    # Database models
     File,
     FileChunk,
-    # Request/Response models
     FileUploadRequest,
     FileUploadResponse,
     FileInfo,
     FileListResponse,
     FileDeleteResponse,
-    # CRUD models
     FileRead,
     FileCreate,
     FileUpdate,
     ChunkCreate,
 )
 
-# Export all models for easy importing
 __all__ = [
-    # Base
+    # Base models
     "TimestampMixin",
     "BaseResponse",
     "SuccessResponse",
     "ErrorResponse",
     "HealthResponse",
-    # Auth
+    
+    # Authentication models
     "User",
     "UserSession",
     "LoginRequest",
@@ -67,7 +61,8 @@ __all__ = [
     "UserCreate",
     "UserUpdate",
     "SessionCreate",
-    # Files
+    
+    # File management models
     "File",
     "FileChunk",
     "FileUploadRequest",
