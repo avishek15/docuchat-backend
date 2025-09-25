@@ -39,21 +39,7 @@ class File(TimestampMixin, table=True):
     )
 
 
-class FileChunk(TimestampMixin, table=True):
-    """File chunk database model for vector storage."""
-
-    __tablename__ = "file_chunks"
-
-    id: Optional[int] = Field(primary_key=True, description="Chunk ID")
-    file_id: int = Field(foreign_key="files.id", description="Parent file ID")
-    chunk_index: int = Field(description="Chunk sequence number")
-    content: str = Field(description="Chunk text content")
-    embedding_id: Optional[str] = Field(
-        default=None, description="Vector database embedding ID"
-    )
-    token_count: Optional[int] = Field(
-        default=None, description="Number of tokens in chunk"
-    )
+# FileChunk model removed - content stored directly in Pinecone
 
 
 # Request/Response Models (table=False, default)
@@ -108,6 +94,14 @@ class FileDeleteResponse(BaseResponse):
     file_id: str = Field(description="Deleted file ID")
 
 
+class FileCountResponse(BaseResponse):
+    """File count response model."""
+
+    status: str = Field(default="success", description="Response status")
+    count: int = Field(description="Current number of files")
+    limit: int = Field(description="Maximum allowed files")
+
+
 # Read Models (for database queries)
 
 
@@ -140,11 +134,4 @@ class FileUpdate(SQLModel):
     storage_path: Optional[str] = Field(default=None, description="Storage path")
 
 
-class ChunkCreate(SQLModel):
-    """File chunk creation model."""
-
-    file_id: int = Field(description="Parent file ID")
-    chunk_index: int = Field(description="Chunk sequence number")
-    content: str = Field(description="Chunk content")
-    embedding_id: Optional[str] = Field(default=None, description="Embedding ID")
-    token_count: Optional[int] = Field(default=None, description="Token count")
+# ChunkCreate model removed - chunks stored directly in Pinecone

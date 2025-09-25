@@ -314,7 +314,11 @@ class PineconeService(BaseAPIClient):
 
     # Document Operations
     async def store_chunks(
-        self, user_email: str, filename: str, chunks_batch: List[Dict[str, Any]]
+        self,
+        user_email: str,
+        filename: str,
+        chunks_batch: List[Dict[str, Any]],
+        db_file_id: Optional[int] = None,
     ) -> Dict[str, int]:
         """Store pre-chunked document data with parallel processing."""
         async with self._semaphore:
@@ -325,7 +329,11 @@ class PineconeService(BaseAPIClient):
                 # Prepare records for upsert
                 records = []
                 for i, chunk in enumerate(chunks_batch):
-                    record_id = f"{filename}#chunk{i + 1}"
+                    # Use database file ID if available, otherwise fall back to filename
+                    if db_file_id:
+                        record_id = f"file_{db_file_id}#chunk{i + 1}"
+                    else:
+                        record_id = f"{filename}#chunk{i + 1}"
 
                     # Ensure required metadata is present
                     metadata = {
@@ -336,6 +344,10 @@ class PineconeService(BaseAPIClient):
                         "created_at": current_time,
                         **chunk.get("metadata", {}),  # Additional metadata
                     }
+
+                    # Add database file ID to metadata if available
+                    if db_file_id:
+                        metadata["db_file_id"] = db_file_id
 
                     records.append({"_id": record_id, **metadata})
 
@@ -456,6 +468,13 @@ class PineconeService(BaseAPIClient):
                 namespace = self._get_user_namespace(user_email)
 
                 # First, get all chunk IDs for this document
+                self.logger.info(
+                    "Searching for chunks by filename",
+                    user_email=user_email,
+                    filename=filename,
+                    namespace=namespace,
+                )
+
                 results = self.index.search(
                     namespace=namespace,
                     query={
@@ -467,6 +486,16 @@ class PineconeService(BaseAPIClient):
                 )
 
                 chunk_ids = [match["id"] for match in results.get("matches", [])]
+
+                self.logger.info(
+                    "Search results for filename",
+                    user_email=user_email,
+                    filename=filename,
+                    found_chunks=len(chunk_ids),
+                    chunk_ids=chunk_ids[:5]
+                    if chunk_ids
+                    else [],  # Log first 5 IDs for debugging
+                )
 
                 if not chunk_ids:
                     self.logger.info(
@@ -497,6 +526,100 @@ class PineconeService(BaseAPIClient):
                     "Document deletion failed",
                     user_email=user_email,
                     filename=filename,
+                    error=str(e),
+                )
+
+    async def delete_file_by_db_id(
+        self, user_email: str, db_file_id: int, filename: str = None
+    ) -> Dict[str, int]:
+        """Delete all chunks of a file using database file ID from metadata."""
+        async with self._semaphore:
+            try:
+                namespace = self._get_user_namespace(user_email)
+
+                self.logger.info(
+                    "Deleting chunks using db_file_id metadata filter",
+                    user_email=user_email,
+                    db_file_id=db_file_id,
+                    namespace=namespace,
+                )
+
+                # Use Pinecone's delete with metadata filter - this is the most reliable approach
+                delete_response = self.index.delete(
+                    filter={"db_file_id": {"$eq": db_file_id}}, namespace=namespace
+                )
+
+                self.logger.info(
+                    "Delete operation completed using metadata filter",
+                    user_email=user_email,
+                    db_file_id=db_file_id,
+                    delete_response=delete_response,
+                )
+
+                # Verify deletion by searching for remaining chunks
+                verification_results = self.index.search(
+                    namespace=namespace,
+                    query={
+                        "inputs": {"text": "verification query"},
+                        "top_k": 5,
+                        "filter": {"db_file_id": db_file_id},
+                    },
+                    fields=["db_file_id", "filename"],
+                )
+
+                remaining_chunks = len(verification_results.get("matches", []))
+
+                if remaining_chunks == 0:
+                    # Successfully deleted using metadata filter
+                    self.logger.info(
+                        "File deleted successfully using db_file_id metadata",
+                        user_email=user_email,
+                        db_file_id=db_file_id,
+                    )
+                    return {
+                        "deleted_chunks": "unknown",  # Pinecone doesn't return exact count
+                        "db_file_id": db_file_id,
+                        "namespace": namespace,
+                        "method": "db_file_id_metadata",
+                    }
+
+                # If chunks still remain, try filename fallback for legacy data
+                if filename:
+                    self.logger.info(
+                        "Some chunks remain after db_file_id deletion, trying filename fallback",
+                        user_email=user_email,
+                        db_file_id=db_file_id,
+                        filename=filename,
+                        remaining_chunks=remaining_chunks,
+                    )
+                    fallback_result = await self.delete_document(user_email, filename)
+                    fallback_result["method"] = "filename_fallback"
+                    self.logger.info(
+                        "Fallback deletion result",
+                        user_email=user_email,
+                        db_file_id=db_file_id,
+                        filename=filename,
+                        result=fallback_result,
+                    )
+                    return fallback_result
+
+                # No chunks found with either method
+                self.logger.info(
+                    "No chunks found for file deletion",
+                    user_email=user_email,
+                    db_file_id=db_file_id,
+                )
+                return {
+                    "deleted_chunks": 0,
+                    "db_file_id": db_file_id,
+                    "method": "none_found",
+                }
+
+            except Exception as e:
+                self.logger.error(
+                    "File deletion by database ID failed",
+                    user_email=user_email,
+                    db_file_id=db_file_id,
                     error=str(e),
                 )
                 raise ExternalAPIError(f"Document deletion failed: {str(e)}")

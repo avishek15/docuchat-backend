@@ -28,16 +28,15 @@ from .auth import (
 # File management models
 from .files import (
     File,
-    FileChunk,
     FileUploadRequest,
     FileUploadResponse,
     FileInfo,
     FileListResponse,
     FileDeleteResponse,
+    FileCountResponse,
     FileRead,
     FileCreate,
     FileUpdate,
-    ChunkCreate,
 )
 
 __all__ = [
@@ -47,7 +46,6 @@ __all__ = [
     "SuccessResponse",
     "ErrorResponse",
     "HealthResponse",
-    
     # Authentication models
     "User",
     "UserSession",
@@ -61,17 +59,15 @@ __all__ = [
     "UserCreate",
     "UserUpdate",
     "SessionCreate",
-    
     # File management models
     "File",
-    "FileChunk",
     "FileUploadRequest",
     "FileUploadResponse",
     "FileInfo",
     "FileListResponse",
     "FileDeleteResponse",
+    "FileCountResponse",
     "FileRead",
     "FileCreate",
     "FileUpdate",
-    "ChunkCreate",
 ]
