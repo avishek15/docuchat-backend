@@ -13,3 +13,4 @@
 
 *.pyc
 .python-version
+local.db*

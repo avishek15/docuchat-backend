@@ -36,7 +36,7 @@ async def get_current_user(
         token = credentials.credentials
 
         # Validate the token
-        session_data = auth_service.validate_token(token)
+        session_data = await auth_service.validate_token(token)
 
         if session_data is None:
             raise HTTPException(
@@ -76,6 +76,6 @@ async def get_optional_user(
     try:
         auth_service = get_auth_service()
         token = credentials.credentials
-        return auth_service.validate_token(token)
+        return await auth_service.validate_token(token)
     except Exception:
         return None

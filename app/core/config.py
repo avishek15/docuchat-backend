@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     google_sheets_id: Optional[str] = Field(default=None, env="GOOGLE_SHEETS_ID")
     google_worksheet_name: str = Field(default="Leads", env="GOOGLE_WORKSHEET_NAME")
 
+    # Turso Database settings
+    turso_database_url: Optional[str] = Field(default=None, env="TURSO_DATABASE_URL")
+    turso_auth_token: Optional[str] = Field(default=None, env="TURSO_AUTH_TOKEN")
+    local_db_path: str = Field(default="local.db", env="LOCAL_DB_PATH")
+
     # External API settings
     api_timeout: int = Field(default=30, env="API_TIMEOUT")
     max_retries: int = Field(default=3, env="MAX_RETRIES")
