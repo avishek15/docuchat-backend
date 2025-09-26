@@ -102,6 +102,20 @@ class FileCountResponse(BaseResponse):
     limit: int = Field(description="Maximum allowed files")
 
 
+class DeleteAllDataResponse(BaseResponse):
+    """Delete all user data response model."""
+
+    status: str = Field(default="success", description="Deletion status")
+    message: str = Field(description="Deletion message")
+    user_id: int = Field(description="User ID whose data was deleted")
+    pinecone_vectors_deleted: int = Field(
+        description="Number of vectors deleted from Pinecone"
+    )
+    database_files_deleted: int = Field(
+        description="Number of files deleted from database"
+    )
+
+
 # Read Models (for database queries)
 
 

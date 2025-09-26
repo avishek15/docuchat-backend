@@ -133,4 +133,34 @@ class FileDatabaseService(BaseDatabaseService):
             )
             raise
 
+    async def delete_all_user_files(self, user_id: int) -> int:
+        """Delete all files for a user."""
+        try:
+            with self._get_session() as session:
+                # Get count before deletion for reporting
+                file_count = session.query(File).filter(File.user_id == user_id).count()
+
+                if file_count == 0:
+                    self.logger.info(
+                        "No files found for user deletion",
+                        user_id=user_id,
+                    )
+                    return 0
+
+                # Delete all files for the user
+                session.execute(delete(File).where(File.user_id == user_id))
+                session.commit()
+
+                self.logger.info(
+                    "All user files deleted successfully",
+                    user_id=user_id,
+                    deleted_files=file_count,
+                )
+                return file_count
+        except Exception as e:
+            self.logger.error(
+                "Failed to delete all user files", user_id=user_id, error=str(e)
+            )
+            raise
+
     # Note: File chunks are stored in Pinecone, not in database

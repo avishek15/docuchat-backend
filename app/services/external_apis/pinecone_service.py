@@ -624,6 +624,75 @@ class PineconeService(BaseAPIClient):
                 )
                 raise ExternalAPIError(f"Document deletion failed: {str(e)}")
 
+    async def delete_user_namespace(self, user_email: str) -> Dict[str, int]:
+        """Delete entire user namespace from Pinecone using delete_namespace operation."""
+        async with self._semaphore:
+            try:
+                namespace = self._get_user_namespace(user_email)
+
+                self.logger.info(
+                    "Deleting entire user namespace",
+                    user_email=user_email,
+                    namespace=namespace,
+                )
+
+                # First, get namespace details to count vectors
+                try:
+                    namespace_info = self.index.describe_namespace(namespace=namespace)
+                    vector_count = int(namespace_info.get("record_count", 0))
+
+                    self.logger.info(
+                        "Found namespace with vectors",
+                        user_email=user_email,
+                        namespace=namespace,
+                        vector_count=vector_count,
+                    )
+                except Exception as describe_error:
+                    # Namespace might not exist or be empty
+                    self.logger.info(
+                        "Could not describe namespace (might not exist)",
+                        user_email=user_email,
+                        namespace=namespace,
+                        error=str(describe_error),
+                    )
+                    vector_count = 0
+
+                if vector_count == 0:
+                    self.logger.info(
+                        "No vectors found in namespace",
+                        user_email=user_email,
+                        namespace=namespace,
+                    )
+                    return {
+                        "deleted_vectors": 0,
+                        "namespace": namespace,
+                        "method": "namespace_empty",
+                    }
+
+                # Delete the entire namespace using delete_namespace operation
+                self.index.delete_namespace(namespace=namespace)
+
+                self.logger.info(
+                    "User namespace deleted successfully",
+                    user_email=user_email,
+                    namespace=namespace,
+                    deleted_vectors=vector_count,
+                )
+
+                return {
+                    "deleted_vectors": vector_count,
+                    "namespace": namespace,
+                    "method": "namespace_deletion",
+                }
+
+            except Exception as e:
+                self.logger.error(
+                    "Failed to delete user namespace",
+                    user_email=user_email,
+                    error=str(e),
+                )
+                raise ExternalAPIError(f"Namespace deletion failed: {str(e)}")
+
     async def update_document_chunks(
         self, user_email: str, filename: str, chunks_batch: List[Dict[str, Any]]
     ) -> Dict[str, int]:

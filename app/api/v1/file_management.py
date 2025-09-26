@@ -18,6 +18,7 @@ from app.models.files import (
     FileInfo,
     FileCountResponse,
     FileDeleteResponse,
+    DeleteAllDataResponse,
 )
 from app.core.auth import get_current_user
 from app.services.external_apis.pinecone_service import PineconeService
@@ -375,4 +376,71 @@ async def delete_file(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete file",
+        )
+
+
+@router.delete(
+    "/files/all",
+    response_model=DeleteAllDataResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
+)
+async def delete_all_user_data(
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete all user data from both Pinecone and database."""
+    user_id = current_user.get("user_id")
+    user_email = current_user.get("email")
+
+    try:
+        # Validate user session
+        if not user_id or not user_email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user session",
+            )
+
+        logger.info(
+            "Starting complete user data deletion",
+            user_id=user_id,
+            user_email=user_email,
+        )
+
+        # Step 1: Delete all vectors from Pinecone namespace
+        pinecone_result = await pinecone_service.delete_user_namespace(user_email)
+        pinecone_vectors_deleted = pinecone_result.get("deleted_vectors", 0)
+
+        # Step 2: Delete all files from database
+        database_files_deleted = await file_db_service.delete_all_user_files(user_id)
+
+        logger.info(
+            "Complete user data deletion successful",
+            user_id=user_id,
+            user_email=user_email,
+            pinecone_vectors_deleted=pinecone_vectors_deleted,
+            database_files_deleted=database_files_deleted,
+        )
+
+        return DeleteAllDataResponse(
+            status="success",
+            message="All user data deleted successfully",
+            user_id=user_id,
+            pinecone_vectors_deleted=pinecone_vectors_deleted,
+            database_files_deleted=database_files_deleted,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to delete all user data",
+            error=str(e),
+            user_id=user_id,
+            user_email=user_email,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete all user data",
         )
