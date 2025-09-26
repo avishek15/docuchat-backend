@@ -4,11 +4,7 @@ import uuid
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
-from app.core.agent.chatNode import (
-    chat_with_memory,
-    get_conversation_history,
-    inspect_memory,
-)
+from app.services.agent_service import get_agent_service
 from app.core.auth import get_current_user
 
 router = APIRouter()
@@ -63,22 +59,34 @@ async def chat_with_agent(
     Each user gets their own conversation thread that persists across requests.
     """
     try:
+        # Get user email for namespace isolation
+        user_email = current_user.get("email")
+        if not user_email:
+            raise HTTPException(
+                status_code=400, detail="User email not found in session"
+            )
+
         # Generate thread_id if not provided
         if not request.thread_id:
             thread_id = f"user_{current_user['user_id']}_{uuid.uuid4().hex[:8]}"
         else:
             thread_id = f"user_{current_user['user_id']}_{request.thread_id}"
 
-        # Get the agent's response
-        response = chat_with_memory(request.message, thread_id)
+        # Get agent service and chat with memory
+        agent_service = get_agent_service()
+        response = agent_service.chat_with_memory(
+            user_input=request.message, user_email=user_email, thread_id=thread_id
+        )
 
         # Get conversation history to count messages
-        history = get_conversation_history(thread_id)
+        history = agent_service.get_conversation_history(user_email, thread_id)
 
         return ChatResponse(
             response=response, thread_id=thread_id, message_count=len(history)
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
@@ -93,12 +101,20 @@ async def get_chat_history(
     The thread_id should be the one returned from a previous chat request.
     """
     try:
+        # Get user email for namespace isolation
+        user_email = current_user.get("email")
+        if not user_email:
+            raise HTTPException(
+                status_code=400, detail="User email not found in session"
+            )
+
         # Ensure the thread belongs to the current user
         if not thread_id.startswith(f"user_{current_user['user_id']}_"):
             raise HTTPException(status_code=403, detail="Access denied to this thread")
 
         # Get conversation history
-        history = get_conversation_history(thread_id)
+        agent_service = get_agent_service()
+        history = agent_service.get_conversation_history(user_email, thread_id)
 
         # Convert messages to dict format for JSON serialization
         messages = []
@@ -131,18 +147,26 @@ async def inspect_chat_memory(
     This provides debugging information about the conversation state.
     """
     try:
+        # Get user email for namespace isolation
+        user_email = current_user.get("email")
+        if not user_email:
+            raise HTTPException(
+                status_code=400, detail="User email not found in session"
+            )
+
         # Ensure the thread belongs to the current user
         if not thread_id.startswith(f"user_{current_user['user_id']}_"):
             raise HTTPException(status_code=403, detail="Access denied to this thread")
 
         # Get memory state
-        snapshot = inspect_memory(thread_id)
+        agent_service = get_agent_service()
+        memory_state = agent_service.inspect_memory(user_email, thread_id)
 
         return MemoryState(
             thread_id=thread_id,
-            message_count=len(snapshot.values["messages"]),
-            next_node=str(snapshot.next) if snapshot.next else "END",
-            step=snapshot.metadata.get("step", 0),
+            message_count=memory_state["message_count"],
+            next_node=memory_state["next_node"],
+            step=memory_state["step"],
         )
 
     except HTTPException:

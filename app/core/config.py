@@ -49,6 +49,22 @@ class Settings(BaseSettings):
     chunk_overlap_size: int = Field(default=256, env="CHUNK_OVERLAP_SIZE")
     chunk_min_size: int = Field(default=128, env="CHUNK_MIN_SIZE")
 
+    # Agent/LLM settings
+    openrouter_api_key: Optional[str] = Field(default=None, env="OPENROUTER_API_KEY")
+    agent_model: str = Field(default="x-ai/grok-4-fast:free", env="AGENT_MODEL")
+    agent_model_provider: str = Field(default="openai", env="AGENT_MODEL_PROVIDER")
+    agent_base_url: str = Field(
+        default="https://openrouter.ai/api/v1", env="AGENT_BASE_URL"
+    )
+
+    # Agent memory settings
+    agent_memory_backend: str = Field(
+        default="memory", env="AGENT_MEMORY_BACKEND"
+    )  # memory, redis, postgres
+    agent_memory_ttl: int = Field(
+        default=86400, env="AGENT_MEMORY_TTL"
+    )  # 24 hours in seconds
+
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
 
