@@ -23,10 +23,15 @@ settings = get_settings()
 
 async def background_cleanup():
     """Background task to clean up expired and inactive sessions."""
-    auth_service = AuthDatabaseService()
     logger.info("Starting background cleanup task")
 
+    # Wait a bit for the app to fully initialize
+    await asyncio.sleep(10)  # 10 seconds initial delay
+
     try:
+        auth_service = AuthDatabaseService()
+        logger.info("Background cleanup service initialized")
+
         while True:
             try:
                 cleaned_count = await auth_service.cleanup_expired_sessions()
@@ -57,29 +62,49 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     logger.info("Starting up DocuChat API")
-    try:
-        # Initialize database connection
-        # init_database()
-        # logger.info("Database connection initialized")
+    cleanup_task = None
 
-        # Create tables using migration manager
-        # migration_manager = get_migration_manager()
-        # migration_manager.create_tables()
-        logger.info("Database tables created successfully")
+    try:
+        # Initialize database connection and create tables if needed
+        from app.core.database import get_database_manager
+        from app.models.auth import User, UserSession
+        from app.models.files import File
+
+        db_manager = get_database_manager()
+        logger.info("Database connection initialized")
+
+        # Create tables if they don't exist (for new deployments)
+        try:
+            # Import all models to ensure they're registered
+            from sqlalchemy import MetaData
+
+            metadata = MetaData()
+
+            # Create all tables
+            User.metadata.create_all(bind=db_manager.engine)
+            UserSession.metadata.create_all(bind=db_manager.engine)
+            File.metadata.create_all(bind=db_manager.engine)
+
+            logger.info("Database tables created successfully")
+        except Exception as e:
+            logger.warning("Could not create database tables", error=str(e))
+            # Don't fail startup if tables already exist or can't be created
+            pass
 
         # Start background cleanup task (non-blocking)
         cleanup_task = asyncio.create_task(background_cleanup())
         logger.info("Background session cleanup started")
 
     except Exception as e:
-        logger.error("Failed to initialize database", error=str(e))
-        raise
+        logger.error("Failed to initialize application", error=str(e))
+        # Don't raise - let the app start even if some initialization fails
+        logger.warning("Application starting with limited functionality")
 
     yield
 
     # Shutdown
     logger.info("Shutting down DocuChat API")
-    if "cleanup_task" in locals():
+    if cleanup_task:
         cleanup_task.cancel()
         try:
             await cleanup_task
