@@ -20,6 +20,9 @@ dependencies = [
     "libsql>=0.1.11",
     "sqlalchemy-libsql>=0.1.0",
     "pinecone>=7.3.0",
+    "langgraph>=0.6.7",
+    "langsmith>=0.4.31",
+    "langchain[openai]>=0.3.27",
 ]
 
 [build-system]

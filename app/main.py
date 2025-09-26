@@ -24,18 +24,32 @@ settings = get_settings()
 async def background_cleanup():
     """Background task to clean up expired and inactive sessions."""
     auth_service = AuthDatabaseService()
-    while True:
-        try:
-            cleaned_count = await auth_service.cleanup_expired_sessions()
-            if cleaned_count > 0:
-                logger.info(
-                    "Background cleanup completed", sessions_cleaned=cleaned_count
-                )
-        except Exception as e:
-            logger.error("Background cleanup failed", error=str(e))
+    logger.info("Starting background cleanup task")
 
-        # Wait 5 minutes before next cleanup
-        await asyncio.sleep(300)  # 5 minutes
+    try:
+        while True:
+            try:
+                cleaned_count = await auth_service.cleanup_expired_sessions()
+                if cleaned_count > 0:
+                    logger.info(
+                        "Background cleanup completed", sessions_cleaned=cleaned_count
+                    )
+                else:
+                    logger.debug("No sessions to clean up")
+            except Exception as e:
+                logger.error("Background cleanup failed", error=str(e))
+                # Don't let cleanup errors crash the server
+                pass
+
+            # Wait 5 minutes before next cleanup
+            await asyncio.sleep(300)  # 5 minutes
+
+    except asyncio.CancelledError:
+        logger.info("Background cleanup task cancelled")
+        raise
+    except Exception as e:
+        logger.error("Background cleanup task failed", error=str(e))
+        # Don't let the task crash the entire application
 
 
 @asynccontextmanager
@@ -53,7 +67,7 @@ async def lifespan(app: FastAPI):
         # migration_manager.create_tables()
         logger.info("Database tables created successfully")
 
-        # Start background cleanup task
+        # Start background cleanup task (non-blocking)
         cleanup_task = asyncio.create_task(background_cleanup())
         logger.info("Background session cleanup started")
 

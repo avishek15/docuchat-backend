@@ -104,16 +104,17 @@ class PineconeService(BaseAPIClient):
 
                 # Format results for agent consumption
                 formatted_results = []
-                for match in results.get("matches", []):
+                for hit in results.get("result", {}).get("hits", []):
+                    fields = hit.get("fields", {})
                     formatted_results.append(
                         {
-                            "id": match["id"],
-                            "score": match["score"],
-                            "text": match["metadata"].get("text", ""),
-                            "filename": match["metadata"].get("filename", ""),
-                            "chunk_number": match["metadata"].get("chunk_number", 0),
-                            "document_type": match["metadata"].get("document_type", ""),
-                            "created_at": match["metadata"].get("created_at", ""),
+                            "id": hit.get("_id", ""),
+                            "score": hit.get("_score", 0),
+                            "text": fields.get("text", ""),
+                            "filename": fields.get("filename", ""),
+                            "chunk_number": int(fields.get("chunk_number", 0)),
+                            "document_type": fields.get("document_type", ""),
+                            "created_at": fields.get("created_at", ""),
                         }
                     )
 
@@ -168,16 +169,19 @@ class PineconeService(BaseAPIClient):
 
                 # Format results for agent consumption
                 formatted_results = []
-                for match in results.get("matches", []):
+                # Handle new Pinecone Inference API response format
+                hits = results.get("result", {}).get("hits", [])
+                for hit in hits:
+                    fields = hit.get("fields", {})
                     formatted_results.append(
                         {
-                            "id": match["id"],
-                            "score": match["score"],
-                            "text": match["metadata"].get("text", ""),
-                            "filename": match["metadata"].get("filename", ""),
-                            "chunk_number": match["metadata"].get("chunk_number", 0),
-                            "document_type": match["metadata"].get("document_type", ""),
-                            "created_at": match["metadata"].get("created_at", ""),
+                            "id": hit.get("_id", ""),
+                            "score": hit.get("_score", 0),
+                            "text": fields.get("text", ""),
+                            "filename": fields.get("filename", ""),
+                            "chunk_number": int(fields.get("chunk_number", 0)),
+                            "document_type": fields.get("document_type", ""),
+                            "created_at": fields.get("created_at", ""),
                         }
                     )
 
@@ -224,15 +228,19 @@ class PineconeService(BaseAPIClient):
 
                 # Sort by chunk number for proper context order
                 chunks = []
-                for match in results.get("matches", []):
+                for match in results.get("result", {}).get("hits", []):
                     chunks.append(
                         {
-                            "id": match["id"],
-                            "text": match["metadata"].get("text", ""),
-                            "chunk_number": match["metadata"].get("chunk_number", 0),
-                            "filename": match["metadata"].get("filename", ""),
-                            "document_type": match["metadata"].get("document_type", ""),
-                            "created_at": match["metadata"].get("created_at", ""),
+                            "id": match.get("_id", match.get("id", "")),
+                            "text": match.get("fields", {}).get("text", ""),
+                            "chunk_number": match.get("fields", {}).get(
+                                "chunk_number", 0
+                            ),
+                            "filename": match.get("fields", {}).get("filename", ""),
+                            "document_type": match.get("fields", {}).get(
+                                "document_type", ""
+                            ),
+                            "created_at": match.get("fields", {}).get("created_at", ""),
                         }
                     )
 
@@ -276,13 +284,13 @@ class PineconeService(BaseAPIClient):
                     fields=["filename", "chunk_number", "document_type", "created_at"],
                 )
 
-                matches = results.get("matches", [])
+                matches = results.get("result", {}).get("hits", [])
                 if not matches:
                     return {"filename": filename, "exists": False, "chunk_count": 0}
 
                 # Calculate summary statistics
                 chunk_numbers = [
-                    match["metadata"].get("chunk_number", 0) for match in matches
+                    match.get("fields", {}).get("chunk_number", 0) for match in matches
                 ]
 
                 summary = {
@@ -323,56 +331,178 @@ class PineconeService(BaseAPIClient):
         """Store pre-chunked document data with parallel processing."""
         async with self._semaphore:
             try:
+                # Enhanced debugging for Pinecone storage
+                self.logger.info(
+                    "Starting Pinecone chunk storage",
+                    user_email=user_email[:10] + "..."
+                    if len(user_email) > 10
+                    else user_email,
+                    filename=filename,
+                    chunks_count=len(chunks_batch),
+                    db_file_id=db_file_id,
+                    index_name=self.index_name,
+                )
+
+                # Validate input parameters
+                if not chunks_batch:
+                    self.logger.error("Empty chunks batch provided", filename=filename)
+                    raise ExternalAPIError("No chunks provided for storage")
+
+                if not user_email or not user_email.strip():
+                    self.logger.error("Invalid user email provided", filename=filename)
+                    raise ExternalAPIError("Invalid user email")
+
                 namespace = self._get_user_namespace(user_email)
                 current_time = datetime.now(timezone.utc).isoformat()
 
+                self.logger.debug(
+                    "Pinecone storage parameters",
+                    namespace=namespace,
+                    current_time=current_time,
+                    index_available=self.index is not None,
+                )
+
+                # Validate chunks structure
+                for i, chunk in enumerate(chunks_batch):
+                    if not isinstance(chunk, dict):
+                        self.logger.error(
+                            "Invalid chunk format",
+                            filename=filename,
+                            chunk_index=i,
+                            chunk_type=type(chunk).__name__,
+                        )
+                        raise ExternalAPIError(f"Invalid chunk format at index {i}")
+
+                    if not chunk.get("text"):
+                        self.logger.warning(
+                            "Empty text in chunk",
+                            filename=filename,
+                            chunk_index=i,
+                            chunk_keys=list(chunk.keys()),
+                        )
+
                 # Prepare records for upsert
                 records = []
+                total_text_length = 0
+
                 for i, chunk in enumerate(chunks_batch):
-                    # Use database file ID if available, otherwise fall back to filename
-                    if db_file_id:
-                        record_id = f"file_{db_file_id}#chunk{i + 1}"
-                    else:
-                        record_id = f"{filename}#chunk{i + 1}"
+                    try:
+                        # Use database file ID if available, otherwise fall back to filename
+                        if db_file_id:
+                            record_id = f"file_{db_file_id}#chunk{i + 1}"
+                        else:
+                            record_id = f"{filename}#chunk{i + 1}"
 
-                    # Ensure required metadata is present
-                    metadata = {
-                        "text": chunk.get("text", ""),
-                        "filename": filename,
-                        "chunk_number": i + 1,
-                        "document_type": chunk.get("document_type", "text"),
-                        "created_at": current_time,
-                        **chunk.get("metadata", {}),  # Additional metadata
-                    }
+                        chunk_text = chunk.get("text", "")
+                        total_text_length += len(chunk_text)
 
-                    # Add database file ID to metadata if available
-                    if db_file_id:
-                        metadata["db_file_id"] = db_file_id
+                        # Ensure required metadata is present
+                        metadata = {
+                            "text": chunk_text,
+                            "filename": filename,
+                            "chunk_number": i + 1,
+                            "document_type": chunk.get("document_type", "text"),
+                            "created_at": current_time,
+                            **chunk.get("metadata", {}),  # Additional metadata
+                        }
 
-                    records.append({"_id": record_id, **metadata})
+                        # Add database file ID to metadata if available
+                        if db_file_id:
+                            metadata["db_file_id"] = db_file_id
+
+                        records.append({"_id": record_id, **metadata})
+
+                        self.logger.debug(
+                            "Prepared record for chunk",
+                            filename=filename,
+                            chunk_index=i,
+                            record_id=record_id,
+                            text_length=len(chunk_text),
+                            metadata_keys=list(metadata.keys()),
+                        )
+
+                    except Exception as record_error:
+                        self.logger.error(
+                            "Failed to prepare record for chunk",
+                            filename=filename,
+                            chunk_index=i,
+                            error=str(record_error),
+                            error_type=type(record_error).__name__,
+                        )
+                        raise
+
+                self.logger.info(
+                    "Records prepared for Pinecone upsert",
+                    filename=filename,
+                    records_count=len(records),
+                    total_text_length=total_text_length,
+                    avg_chunk_size=total_text_length // len(records) if records else 0,
+                )
+
+                # Check Pinecone connection before upsert
+                if not self.index:
+                    self.logger.error(
+                        "Pinecone index not initialized", filename=filename
+                    )
+                    raise ExternalAPIError("Pinecone index not available")
 
                 # Upsert records to Pinecone
-                self.index.upsert_records(namespace, records)
+                self.logger.debug(
+                    "Starting Pinecone upsert operation", filename=filename
+                )
+
+                try:
+                    upsert_result = self.index.upsert_records(namespace, records)
+                    self.logger.info(
+                        "Pinecone upsert completed",
+                        filename=filename,
+                        namespace=namespace,
+                        records_sent=len(records),
+                        upsert_result=upsert_result
+                        if isinstance(upsert_result, (dict, int, str))
+                        else "complex_result",
+                    )
+                except Exception as upsert_error:
+                    self.logger.error(
+                        "Pinecone upsert operation failed",
+                        filename=filename,
+                        namespace=namespace,
+                        records_count=len(records),
+                        error=str(upsert_error),
+                        error_type=type(upsert_error).__name__,
+                    )
+                    raise
 
                 self.logger.info(
                     "Document chunks stored successfully",
-                    user_email=user_email,
+                    user_email=user_email[:10] + "..."
+                    if len(user_email) > 10
+                    else user_email,
                     filename=filename,
                     chunks_count=len(records),
+                    namespace=namespace,
                 )
 
                 return {
                     "stored_chunks": len(records),
                     "filename": filename,
                     "namespace": namespace,
+                    "total_text_length": total_text_length,
                 }
 
+            except ExternalAPIError:
+                # Re-raise ExternalAPIError as-is
+                raise
             except Exception as e:
                 self.logger.error(
-                    "Failed to store document chunks",
-                    user_email=user_email,
+                    "Unexpected error during chunk storage",
+                    user_email=user_email[:10] + "..."
+                    if len(user_email) > 10
+                    else user_email,
                     filename=filename,
                     error=str(e),
+                    error_type=type(e).__name__,
+                    chunks_provided=len(chunks_batch) if chunks_batch else 0,
                 )
                 raise ExternalAPIError(f"Document storage failed: {str(e)}")
 
@@ -408,20 +538,22 @@ class PineconeService(BaseAPIClient):
 
                     # Format results
                     formatted_results = []
-                    for match in results.get("matches", []):
+                    for match in results.get("result", {}).get("hits", []):
                         formatted_results.append(
                             {
-                                "id": match["id"],
+                                "id": match.get("_id", match.get("id", "")),
                                 "score": match["score"],
-                                "text": match["metadata"].get("text", ""),
-                                "filename": match["metadata"].get("filename", ""),
-                                "chunk_number": match["metadata"].get(
+                                "text": match.get("fields", {}).get("text", ""),
+                                "filename": match.get("fields", {}).get("filename", ""),
+                                "chunk_number": match.get("fields", {}).get(
                                     "chunk_number", 0
                                 ),
-                                "document_type": match["metadata"].get(
+                                "document_type": match.get("fields", {}).get(
                                     "document_type", ""
                                 ),
-                                "created_at": match["metadata"].get("created_at", ""),
+                                "created_at": match.get("fields", {}).get(
+                                    "created_at", ""
+                                ),
                             }
                         )
 
@@ -485,7 +617,10 @@ class PineconeService(BaseAPIClient):
                     fields=["filename"],
                 )
 
-                chunk_ids = [match["id"] for match in results.get("matches", [])]
+                chunk_ids = [
+                    match.get("_id", match.get("id", ""))
+                    for match in results.get("result", {}).get("hits", [])
+                ]
 
                 self.logger.info(
                     "Search results for filename",
@@ -567,7 +702,9 @@ class PineconeService(BaseAPIClient):
                     fields=["db_file_id", "filename"],
                 )
 
-                remaining_chunks = len(verification_results.get("matches", []))
+                remaining_chunks = len(
+                    verification_results.get("result", {}).get("hits", [])
+                )
 
                 if remaining_chunks == 0:
                     # Successfully deleted using metadata filter
@@ -768,7 +905,7 @@ class PineconeService(BaseAPIClient):
                     fields=["filename", "document_type", "created_at"],
                 )
 
-                matches = results.get("matches", [])
+                matches = results.get("result", {}).get("hits", [])
 
                 # Calculate statistics
                 total_chunks = len(matches)
@@ -776,8 +913,8 @@ class PineconeService(BaseAPIClient):
                 document_types = {}
 
                 for match in matches:
-                    filename = match["metadata"].get("filename", "unknown")
-                    doc_type = match["metadata"].get("document_type", "unknown")
+                    filename = match.get("fields", {}).get("filename", "unknown")
+                    doc_type = match.get("fields", {}).get("document_type", "unknown")
 
                     unique_files.add(filename)
                     document_types[doc_type] = document_types.get(doc_type, 0) + 1
@@ -828,7 +965,10 @@ class PineconeService(BaseAPIClient):
                     fields=["filename"],
                 )
 
-                vector_ids = [match["id"] for match in results.get("matches", [])]
+                vector_ids = [
+                    match.get("_id", match.get("id", ""))
+                    for match in results.get("result", {}).get("hits", [])
+                ]
 
                 if not vector_ids:
                     self.logger.info(
@@ -844,8 +984,8 @@ class PineconeService(BaseAPIClient):
 
                 # Count unique documents
                 unique_files = set()
-                for match in results.get("matches", []):
-                    filename = match["metadata"].get("filename", "")
+                for match in results.get("result", {}).get("hits", []):
+                    filename = match.get("fields", {}).get("filename", "")
                     if filename:
                         unique_files.add(filename)
 

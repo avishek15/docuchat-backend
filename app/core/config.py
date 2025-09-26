@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     )
     pinecone_max_concurrent: int = Field(default=15, env="PINECONE_MAX_CONCURRENT")
 
+    # Text chunking settings (512 tokens = ~2048 characters)
+    chunk_size: int = Field(default=2048, env="CHUNK_SIZE")
+    chunk_overlap_size: int = Field(default=256, env="CHUNK_OVERLAP_SIZE")
+    chunk_min_size: int = Field(default=128, env="CHUNK_MIN_SIZE")
+
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
 
